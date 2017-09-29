@@ -7,13 +7,14 @@ use Illuminate\Support\Facades\Hash;
 
 use DB;
 use App\User as UserModel;
+use App\Role as RoleModel;
 use JWTAuth;
 use Auth;
-use App\Role as RoleModel;
+use App\PermissionRoleUser as PermissionRoleUser;
 
 class UserController extends Controller
 {
-    //TODO: refakturirati cijeli kod da se koriste property sa usera
+    
     public function __construct(UserModel $user)
     {
         $this->user = $user;
@@ -56,16 +57,22 @@ class UserController extends Controller
         try
         {
              //$user->create($request->all());  isprobati
-            $password = Hash::make($request->password);
-            $roleID = $request ->roleID;
-
             $this->user->firstname =  $request->firstname;
             $this->user->lastname =  $request->lastname;
-            $this->user->password =  $password;
+            $this->user->password =  Hash::make($request->password);
             $this->user->email =  $request->email;
             $this->user->adress =  $request->adress;
             $this->user->save();
-            $this->user->roles()->attach($roleID);
+
+          
+            foreach($request->roleID as $key => $role){
+                foreach($request->permissionID[$key] as $permission){
+                    $data[]= array('role_id' => $role, 'permission_id' => $permission);
+                }
+            }
+          
+            $this->user->permissionsRoles()->createMany($data);
+        
             return response()->json("success",200);
         }
         catch(Exception $e)
@@ -108,18 +115,24 @@ class UserController extends Controller
                 return response()->json("No user", 400);
             }
             else
-            {
-                $password = Hash::make($request->password);
-                $roleID = $request ->roleID;
-                
+            {   
                 $this->user->find($userId)->update(
                     ['email' => $request->email, 
                     'firstname' => $request->firstname, 
                     'lastname' => $request->lastname, 
-                    'password' => $password, 
+                    'password' => Hash::make($request->password),
                     'adress' => $request->adress]);
-            
-                    $this->user->find($userId)->roles()->sync($request->roleID);
+                
+    
+                $PermissionRoleUser = new PermissionRoleUser;
+                $PermissionRoleUser->where('user_id', $userId)->delete();
+                
+                foreach($request->roleID as $key => $role){
+                    foreach($request->permissionID[$key] as $permission){
+                        $data[]= array('role_id' => $role, 'permission_id' => $permission);
+                    }
+                }    
+                $this->user->find($userId)->permissionsRoles()->createMany($data);
                 return response()->json("success",200);
             }
         }
@@ -131,49 +144,40 @@ class UserController extends Controller
     }
 
     public function authenticate(Request $request)
-    {
+    {   
         // grab credentials from the request
         $credentials = $request->only('email', 'password');
 
         if(Auth::once($credentials)) {
+
             $user = Auth::getUser();
-            $role = new RoleModel;
-            $permissions = array();
+            
+            $PermissionRoleUser = new PermissionRoleUser;
 
-            //$user->find(1)->with(['roles.permissions'])->first()->toArray()
+            $usersData = $user->permissionsRoles()->with(['permission','role'])->get();
 
-            //get all permissions by user
-            foreach($user->roles->toArray() as $array){
-                foreach($role->find($array['id'])->permissions->toArray() as $permission)
-                {
-                    if(!in_array($permission['name'], $permissions)){
-                        $permissions[] = $permission['name'];
-                    }
-                } 
+            foreach($usersData as $data)
+            {
+                $roleandpermissions[strtolower($data->role->name)][]= strtolower($data->permission->name);
             }
 
-            $customClaims = ['permissions' => $permissions];
+           $customFields = ['rolesandpermissions' => $roleandpermissions];
 
-    
             try {
                 // attempt to verify the credentials and create a token for the user
-                if (!$token = JWTAuth::attempt($credentials,$customClaims)) {
+                if (!$token = JWTAuth::attempt($credentials, $customFields)) {
                     return response()->json(['error' => 'invalid_credentials'], 401);
                 }
             } catch (JWTException $e) {
-                // something went wrong whilst attempting to encode the token
+                // something went wrong whilst attempting to encode the token 
                 return response()->json(['error' => 'could_not_create_token'], 500);
             }
-           
-          
-          
+
         } else {
             // Invalid user credentials
+           return response()->json("Invalid user credentials", 200);
         }
         
-       
-
-
         // all good so return the token
         return response()->json(compact('token'));
     }

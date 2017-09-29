@@ -16,21 +16,25 @@ use \App\Http\Middleware\testMiddleware;
 
 Route::post('/myToken','UserController@authenticate');
 
+Route::group(array('prefix' => 'api'), function()
+{
+    Route::group(array('prefix' => 'users', 'middleware' => 'checkPermissions'), function()
+    {
+        Route::get('/','UserController@getAllUsers');
+        Route::get('{id}','UserController@getUserById');
+        Route::delete('{id}','UserController@deleteUserById');
+        
+        Route::group(['middleware' => ['inputValidator']], function () {   
+            Route::put('/{id}','UserController@updateUserById');
+            Route::post('/', 'UserController@addUser');
+        }); 
 
-
-
-Route::group(['middleware' => ['checkPermissions']], function () {  
-
-    Route::get('/api/users', ['permissions' => ['Read', 'Create', ''],   ]);
-    Route::get('/api/users/{id}');
-    Route::delete('/api/users/{id}');
-
-
-    Route::group(['middleware' => ['inputValidator']], function () {   
-        Route::put('/api/users/{id}','UserController@updateUserById');
-        Route::post('/api/users', 'UserController@addUser');
     });
 
 });
+
+ 
+
+
 
 
